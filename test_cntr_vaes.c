@@ -1229,42 +1229,14 @@ static struct mb_job *vaes_submit_cntr_bit_avx512(struct mb_job *job)
         return job;
 }
 
-struct mb_job *submit_job_hash(struct mb_job *job)
-{
-	job->status |= STS_COMPLETED_HMAC;
-	return job;
-}
-
-struct mb_job *submit_job_aes_enc(struct mb_job *job)
-{
-	if (IMB_CIPHER_CNTR == job->cipher_mode)
-                return vaes_submit_cntr_avx512(job);
-        else if (IMB_CIPHER_CNTR_BITLEN == job->cipher_mode)
-                return vaes_submit_cntr_bit_avx512(job);
-        else {
-                job->status |= STS_COMPLETED_AES;
-                return job;
-        }
-}
-
-struct mb_job *submit_job_aes_dec(struct mb_job *job)
-{
-        if (IMB_CIPHER_CNTR == job->cipher_mode)
-                return vaes_submit_cntr_avx512(job);
-        else if (IMB_CIPHER_CNTR_BITLEN == job->cipher_mode)
-                return vaes_submit_cntr_bit_avx512(job);
-        else {
-                job->status |= STS_COMPLETED_AES;
-                return job;
-        }
-}
-
 struct mb_job *submit_job_aes(struct mb_job *job)
 {
-	if (job->cipher_direction == IMB_DIR_ENCRYPT)
-                job = submit_job_aes_enc(job);
+	if (IMB_CIPHER_CNTR == job->cipher_mode)
+                vaes_submit_cntr_avx512(job);
+        else if (IMB_CIPHER_CNTR_BITLEN == job->cipher_mode)
+                vaes_submit_cntr_bit_avx512(job);
         else
-                job = submit_job_aes_dec(job);
+                job->status |= STS_COMPLETED_AES;
 
         return job;
 }
@@ -1293,42 +1265,6 @@ struct mb_job *submit_new_job(struct mb_job *job)
         return job;
 }
 
-int is_job_invalid(const struct mb_job *job)
-{
-	if (job->src == NULL) {
-		printf("cipher_mode:%d\n", job->cipher_mode);
-		return 1;
-	}
-	if (job->dst == NULL) {
-		printf("cipher_mode:%d\n", job->cipher_mode);
-		return 1;
-	}
-	if (job->iv == NULL) {
-		printf("cipher_mode:%d\n", job->cipher_mode);
-		return 1;
-	}
-	if (job->enc_keys == NULL) {
-		printf("cipher_mode:%d\n", job->cipher_mode);
-		return 1;
-	}
-	if (job->key_len_in_bytes != UINT64_C(16) &&
-	    job->key_len_in_bytes != UINT64_C(24) &&
-	    job->key_len_in_bytes != UINT64_C(32)) {
-		printf("cipher_mode:%d\n", job->cipher_mode);
-			return 1;
-	}
-	if (job->iv_len_in_bytes != UINT64_C(16) &&
-	    job->iv_len_in_bytes != UINT64_C(12)) {
-		printf("cipher_mode:%d\n", job->cipher_mode);
-			return 1;
-	}
-	if (job->msg_len_to_cipher_in_bytes == 0) {
-		printf("cipher_mode:%d\n", job->cipher_mode);
-		return 1;
-	}
-	return 0;
-}
-
 struct mb_job *jobs(struct mb_mgr *state, const int offset)
 {
         char *cp = (char *)state->jobs;
@@ -1343,91 +1279,22 @@ void adv_jobs(int *ptr)
                 *ptr = 0;
 }
 
-struct mb_job *flush_job_hash(struct mb_job *job)
-{
-        if (!(job->status & STS_COMPLETED_HMAC)) {
-                job->status |= STS_COMPLETED_HMAC;
-                return job;
-        }
-        return NULL;
-}
-
-void complete_job(struct mb_job *job)
-{
-        while (job->status < STS_COMPLETED) {
-                struct mb_job *tmp = flush_job_hash(job);
-                (void) resubmit_job(tmp);
-        }
-}
-
-struct mb_job *submit_job_and_check(struct mb_mgr *state, const int run_check)
+struct mb_job *submit_job(struct mb_mgr *state)
 {
         struct mb_job *job = NULL;
 
         job = jobs(state, state->next_job);
-        if (run_check) {
-                if (is_job_invalid(job)) {
-                        job->status = STS_INVALID_ARGS;
-                } else {
-                        job->status = STS_BEING_PROCESSED;
-                        job = submit_new_job(job);
-                }
-        } else {
-                job->status = STS_BEING_PROCESSED;
-                job = submit_new_job(job);
-        }
-        if (state->earliest_job < 0) {
-                /* state was previously empty */
-                if (job == NULL)
-                        state->earliest_job = state->next_job;
-                adv_jobs(&state->next_job);
-                goto exit;
-        }
+      
+        job->status = STS_BEING_PROCESSED;
+        job = submit_new_job(job);
+
         adv_jobs(&state->next_job);
-        if (state->earliest_job == state->next_job) {
-                job = jobs(state, state->earliest_job);
-                complete_job(job);
-                adv_jobs(&state->earliest_job);
-                goto exit;
-        }
-        job = jobs(state, state->earliest_job);
-        if (job->status < STS_COMPLETED) {
-                job = NULL;
-                goto exit;
-        }
-
-        adv_jobs(&state->earliest_job);
-exit:
         return job;
-}
-
-struct mb_job *submit_job(struct mb_mgr *state)
-{
-        return submit_job_and_check(state, 1);
 }
 
 struct mb_job *get_next_job(struct mb_mgr *state)
 {
         return jobs(state, state->next_job);
-}
-
-struct mb_job *flush_job(struct mb_mgr *state)
-{
-        struct mb_job *job;
-        DECLARE_ALIGNED(imb_uint128_t xmm_save[10], 16);
-
-        if (state->earliest_job < 0)
-                return NULL; /* empty */
-
-	job = jobs(state, state->earliest_job);
-        complete_job(job);
-
-        adv_jobs(&state->earliest_job);
-
-        if (state->earliest_job == state->next_job)
-                state->earliest_job = -1; /* becomes empty */
-
-        return job;
 }
 
 void hexdump(FILE *fp, const char *msg, const void *p, size_t len)
@@ -1512,11 +1379,7 @@ static int test_ctr(struct mb_mgr *mb_mgr, const void *expkey, unsigned key_len,
                 printf("%d Error status:%d", __LINE__, job->status);
                 goto end;
         }
-        job = flush_job(mb_mgr);
-        if (job) {
-                printf("%u Unexpected return from flush_job\n", __LINE__);
-                goto end;
-	}
+        job = NULL;
 	if (memcmp(out_text, target + 16, text_byte_len)) {
                 printf("mismatched\n");
                 hexdump(stderr, "Target", target, text_byte_len + 32);
