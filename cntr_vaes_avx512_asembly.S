@@ -204,15 +204,15 @@ shift_tab_16:
 #define ZKEY13  %zmm30
 #define ZKEY14  %zmm31
 
-#define _aes_enc_key_expanded	0
-#define _aes_dec_key_expanded	8
-#define _aes_key_len_in_bytes	16
-#define _src			24
-#define _dst			32
-#define _cipher_start_src_offset_in_bytes	40
-#define _msg_len_to_cipher			48
-#define _iv			56
-#define _iv_len_in_bytes	64
+#define _aes_enc_key_expanded	0//key
+#define _aes_dec_key_expanded	8//key
+#define _aes_key_len_in_bytes	16//key length
+#define _src			24//in
+#define _dst			32//out
+#define _cipher_start_src_offset_in_bytes	40//na
+#define _msg_len_to_cipher			48//na
+#define _iv			56//iv
+#define _iv_len_in_bytes	64//ivlen. NA
 #define _auth_tag_output	72
 #define _auth_tag_output_len_in_bytes	80
 #define _status			88
